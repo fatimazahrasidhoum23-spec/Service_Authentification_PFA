@@ -1,0 +1,30 @@
+﻿stages:
+  - build
+  - test
+  - publish
+
+variables:
+  DOTNET_VERSION: "7.0"
+
+before_script:
+  - echo "Installing .NET SDK $DOTNET_VERSION"
+  - apt-get update && apt-get install -y wget
+  - wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+  - bash dotnet-install.sh --version $DOTNET_VERSION
+  - export PATH=$PATH:$HOME/.dotnet
+
+build:
+  stage: build
+  script:
+    - dotnet restore
+    - dotnet build --configuration Release
+
+test:
+  stage: test
+  script:
+    - dotnet test --no-build --verbosity normal
+
+publish:
+  stage: publish
+  script:
+    - dotnet publish -c Release -o ./publish
