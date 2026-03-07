@@ -1,7 +1,9 @@
-﻿using AuthService.DTOs;
+﻿using AuthService.Data;
+using AuthService.DTOs;
 using AuthService.Interfaces;
 using AuthService.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -14,11 +16,13 @@ namespace AuthService.Services
     {
         private readonly UserManager<User> _userManager;
         private readonly IConfiguration _configuration;
+        private readonly AuthDbContext _context;
 
-        public AuthServiceImpl(UserManager<User> userManager, IConfiguration configuration)
+        public AuthServiceImpl(UserManager<User> userManager, IConfiguration configuration, AuthDbContext context)
         {
             _userManager = userManager;
             _configuration = configuration;
+            _context = context;
         }
 
         // ---------------- REGISTER ----------------
@@ -34,7 +38,6 @@ namespace AuthService.Services
             };
 
             var result = await _userManager.CreateAsync(user, request.Password);
-
             if (!result.Succeeded)
                 throw new Exception(string.Join(",", result.Errors.Select(e => e.Description)));
 
@@ -52,7 +55,6 @@ namespace AuthService.Services
         public async Task<LoginResponseDto> LoginAsync(LoginRequestDto request)
         {
             var user = await _userManager.FindByEmailAsync(request.Email);
-
             if (user == null || !await _userManager.CheckPasswordAsync(user, request.Password))
                 throw new Exception("Email ou mot de passe invalide");
 
@@ -62,9 +64,26 @@ namespace AuthService.Services
             var jwt = GenerateJwt(user, role);
             var refresh = GenerateRefreshToken();
 
-            user.RefreshToken = refresh;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-            await _userManager.UpdateAsync(user);
+            // Cherche un token existant pour ce user
+            var existingToken = await _context.Tokens.FirstOrDefaultAsync(t => t.UserId == user.Id);
+            if (existingToken != null)
+            {
+                // Met à jour le token existant
+                existingToken.RefreshToken = refresh;
+                existingToken.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+                _context.Tokens.Update(existingToken);
+            }
+            else
+            {
+                // Crée un nouveau token
+                await _context.Tokens.AddAsync(new Token
+                {
+                    RefreshToken = refresh,
+                    RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7),
+                    UserId = user.Id
+                });
+            }
+            await _context.SaveChangesAsync();
 
             return new LoginResponseDto
             {
@@ -78,22 +97,24 @@ namespace AuthService.Services
         // ---------------- REFRESH ----------------
         public async Task<LoginResponseDto?> RefreshTokenAsync(string refreshToken)
         {
-            var user = _userManager.Users.FirstOrDefault(u => u.RefreshToken == refreshToken);
+            var token = await _context.Tokens
+                .Include(t => t.User)
+                .FirstOrDefaultAsync(t => t.RefreshToken == refreshToken);
 
-            // Vérifie si le token est invalide ou expiré
-            if (user == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
-                return null; // ← ne throw plus d'exception
+            if (token == null || token.RefreshTokenExpiryTime <= DateTime.UtcNow)
+                return null;
 
+            var user = token.User;
             var roles = await _userManager.GetRolesAsync(user);
             var role = roles.FirstOrDefault() ?? "Candidat";
 
             var newJwt = GenerateJwt(user, role);
-
-            // Optionnel : génère un nouveau refresh token
             var newRefreshToken = GenerateRefreshToken();
-            user.RefreshToken = newRefreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-            await _userManager.UpdateAsync(user);
+
+            token.RefreshToken = newRefreshToken;
+            token.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            _context.Tokens.Update(token);
+            await _context.SaveChangesAsync();
 
             return new LoginResponseDto
             {
@@ -108,7 +129,6 @@ namespace AuthService.Services
         private string GenerateJwt(User user, string role)
         {
             var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Key"]);
-
             var claims = new[]
             {
                 new Claim(ClaimTypes.NameIdentifier, user.Id),
@@ -134,24 +154,22 @@ namespace AuthService.Services
             rng.GetBytes(bytes);
             return Convert.ToBase64String(bytes);
         }
+
+        // ---------------- PROFILE ----------------
         public async Task<UserProfileDto> GetProfileAsync(string userId)
         {
             var user = await _userManager.FindByIdAsync(userId);
-
-            if (user == null)
-                throw new Exception("User not found");
+            if (user == null) return null;
 
             var roles = await _userManager.GetRolesAsync(user);
-            var role = roles.FirstOrDefault() ?? "Candidat";
 
             return new UserProfileDto
             {
                 Id = user.Id,
-                Email = user.Email!,
+                Email = user.Email,
                 Nom = user.Nom,
                 Prenom = user.Prenom,
-                Telephone = user.Telephone,
-                Role = role
+                Role = roles.FirstOrDefault()
             };
         }
     }

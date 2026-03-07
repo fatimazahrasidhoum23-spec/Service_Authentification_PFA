@@ -6,7 +6,7 @@ namespace AuthService.Interfaces
     {
         Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request);
         Task<LoginResponseDto> LoginAsync(LoginRequestDto request);
-        Task<LoginResponseDto> RefreshTokenAsync(string refreshToken);
+        Task<LoginResponseDto?> RefreshTokenAsync(string refreshToken);
         Task<UserProfileDto> GetProfileAsync(string userId);
     }
 

@@ -50,14 +50,25 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
     /// Profile
+
     [Authorize]
     [HttpGet("me")]
     public async Task<IActionResult> Me()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        Console.WriteLine($">>> userId from token: {userId}"); // ← debug
+
+        if (userId == null)
+            return Unauthorized();
 
         var result = await _authService.GetProfileAsync(userId);
-
+        if (result == null)
+            return NotFound("User not found");
         return Ok(result);
+    }
+    [HttpGet("test")]
+    public IActionResult Test()
+    {
+        return Ok("API OK");
     }
 }
