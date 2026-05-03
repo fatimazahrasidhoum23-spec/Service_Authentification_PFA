@@ -1,6 +1,7 @@
 ﻿using AuthService.Data;
 using AuthService.DTOs;
 using AuthService.Interfaces;
+using AuthService.Mappers;
 using AuthService.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -28,14 +29,7 @@ namespace AuthService.Services
         // ---------------- REGISTER ----------------
         public async Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request)
         {
-            var user = new User
-            {
-                UserName = request.Email,
-                Email = request.Email,
-                Nom = request.Nom,
-                Prenom = request.Prenom,
-                Telephone = request.Telephone
-            };
+            var user = AuthMapper.ToUser(request);
 
             var result = await _userManager.CreateAsync(user, request.Password);
             if (!result.Succeeded)
@@ -64,18 +58,15 @@ namespace AuthService.Services
             var jwt = GenerateJwt(user, role);
             var refresh = GenerateRefreshToken();
 
-            // Cherche un token existant pour ce user
             var existingToken = await _context.Tokens.FirstOrDefaultAsync(t => t.UserId == user.Id);
             if (existingToken != null)
             {
-                // Met à jour le token existant
                 existingToken.RefreshToken = refresh;
                 existingToken.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
                 _context.Tokens.Update(existingToken);
             }
             else
             {
-                // Crée un nouveau token
                 await _context.Tokens.AddAsync(new Token
                 {
                     RefreshToken = refresh,
@@ -85,13 +76,7 @@ namespace AuthService.Services
             }
             await _context.SaveChangesAsync();
 
-            return new LoginResponseDto
-            {
-                Token = jwt,
-                RefreshToken = refresh,
-                Email = user.Email!,
-                Role = role
-            };
+            return AuthMapper.ToLoginDto(user, role, jwt, refresh);
         }
 
         // ---------------- REFRESH ----------------
@@ -116,13 +101,18 @@ namespace AuthService.Services
             _context.Tokens.Update(token);
             await _context.SaveChangesAsync();
 
-            return new LoginResponseDto
-            {
-                Token = newJwt,
-                RefreshToken = newRefreshToken,
-                Email = user.Email!,
-                Role = role
-            };
+            return AuthMapper.ToLoginDto(user, role, newJwt, newRefreshToken);
+        }
+
+        // ---------------- LOGOUT ----------------
+        public async Task<bool> LogoutAsync(string userId)
+        {
+            var token = await _context.Tokens.FirstOrDefaultAsync(t => t.UserId == userId);
+            if (token == null) return false;
+
+            _context.Tokens.Remove(token);
+            await _context.SaveChangesAsync();
+            return true;
         }
 
         // ---------------- HELPERS ----------------
@@ -162,15 +152,7 @@ namespace AuthService.Services
             if (user == null) return null;
 
             var roles = await _userManager.GetRolesAsync(user);
-
-            return new UserProfileDto
-            {
-                Id = user.Id,
-                Email = user.Email,
-                Nom = user.Nom,
-                Prenom = user.Prenom,
-                Role = roles.FirstOrDefault()
-            };
+            return AuthMapper.ToProfileDto(user, roles.FirstOrDefault());
         }
     }
 }

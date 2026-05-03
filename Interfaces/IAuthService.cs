@@ -8,6 +8,7 @@ namespace AuthService.Interfaces
         Task<LoginResponseDto> LoginAsync(LoginRequestDto request);
         Task<LoginResponseDto?> RefreshTokenAsync(string refreshToken);
         Task<UserProfileDto> GetProfileAsync(string userId);
+        Task<bool> LogoutAsync(string userId);
     }
 
 }

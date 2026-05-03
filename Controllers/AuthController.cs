@@ -71,4 +71,16 @@ public class AuthController : ControllerBase
     {
         return Ok("API OK");
     }
+    // ---------------- LOGOUT ----------------
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null) return Unauthorized();
+
+        var result = await _authService.LogoutAsync(userId);
+        if (!result) return NotFound("Token introuvable");
+
+        return Ok(new { message = "Déconnexion réussie" });
+    }
 }

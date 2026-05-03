@@ -1,20 +1,19 @@
-﻿using AuthService.Data; 
+﻿using AuthService.Data;
 using AuthService.Interfaces;
 using AuthService.Models;
+using AuthService.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using AuthService.Services;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
-
 var builder = WebApplication.CreateBuilder(args);
+
 builder.Services.AddScoped<IAuthService, AuthServiceImpl>();
+builder.Services.AddHostedService<TokenCleanupService>();
 
-
-
-// DATABASE (PostgreSQL)
+// DATABASE
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
 );
@@ -31,7 +30,7 @@ builder.Services.AddIdentityCore<User>(options =>
 .AddEntityFrameworkStores<AuthDbContext>()
 .AddDefaultTokenProviders();
 
-// CONTROLLERS (API)
+// JWT
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -45,32 +44,30 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]))
         };
     });
-  
+
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();
 
-// BUILD APP
-
 var app = builder.Build();
 
-// CRÉER LES RÔLES AU DÉMARRAGE
+// MIGRATION AUTOMATIQUE
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    db.Database.Migrate();
+}
 
+// CRÉER LES RÔLES
 using (var scope = app.Services.CreateScope())
 {
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-
     string[] roles = { "RH", "Technique", "Candidat" };
-
     foreach (var role in roles)
         if (!await roleManager.RoleExistsAsync(role))
             await roleManager.CreateAsync(new IdentityRole(role));
 }
 
-// Middleware
-//app.UseHttpsRedirection();
-app.UseAuthentication();  // 🔹 Important pour Identity
+app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();
